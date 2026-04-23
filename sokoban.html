@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>推箱子游戏</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .game-container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 800px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+        }
+
+        .game-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .level-info {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .moves {
+            font-size: 1.1em;
+            color: #666;
+        }
+
+        .game-board {
+            display: inline-block;
+            border: 3px solid #667eea;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px auto;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+
+        .grid {
+            display: grid;
+            gap: 1px;
+            background: #ddd;
+        }
+
+        .cell {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            position: relative;
+        }
+
+        .wall {
+            background: #8B4513;
+            background: linear-gradient(45deg, #8B4513, #A0522D);
+        }
+
+        .floor {
+            background: #f0f0f0;
+        }
+
+        .target {
+            background: #e8f5e8;
+            position: relative;
+        }
+
+        .target::after {
+            content: '◯';
+            position: absolute;
+            color: #4CAF50;
+            font-size: 20px;
+        }
+
+        .box {
+            background: #DEB887;
+            border: 2px solid #8B7355;
+            border-radius: 5px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .box::after {
+            content: '□';
+            position: absolute;
+            color: #654321;
+            font-size: 28px;
+        }
+
+        .box-on-target {
+            background: #8FBC8F;
+            border-color: #228B22;
+        }
+
+        .box-on-target::after {
+            content: '■';
+            color: #006400;
+        }
+
+        .player {
+            background: #87CEEB;
+            border: 2px solid #4682B4;
+            border-radius: 50%;
+            position: relative;
+            z-index: 3;
+        }
+
+        .player::after {
+            content: '●';
+            position: absolute;
+            color: #1E90FF;
+            font-size: 24px;
+        }
+
+        .controls {
+            margin: 20px 0;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 5px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .level-select {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .level-btn {
+            background: #e9ecef;
+            color: #495057;
+            min-width: 40px;
+            height: 40px;
+        }
+
+        .level-btn.completed {
+            background: #28a745;
+            color: white;
+        }
+
+        .level-btn.current {
+            background: #667eea;
+            color: white;
+        }
+
+        .level-btn.locked {
+            background: #6c757d;
+            color: white;
+            cursor: not-allowed;
+        }
+
+        .level-btn.locked:hover {
+            background: #6c757d;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .message {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .instructions {
+            background: #e2e3e5;
+            color: #383d41;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .instructions h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+
+        .instructions ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .instructions li {
+            margin: 5px 0;
+        }
+
+        .next-level-prompt {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .next-level-buttons {
+            margin-top: 15px;
+        }
+
+        @media (max-width: 600px) {
+            .cell {
+                width: 30px;
+                height: 30px;
+                font-size: 18px;
+            }
+
+            .game-container {
+                padding: 15px;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>🎯 推箱子游戏</h1>
+
+        <div class="game-info">
+            <div class="level-info">第 <span id="current-level">1</span> 关</div>
+            <div class="moves">步数: <span id="move-count">0</span></div>
+        </div>
+
+        <div class="game-board">
+            <div id="grid" class="grid"></div>
+        </div>
+
+        <div class="controls">
+            <button onclick="resetLevel()">重新开始</button>
+            <button onclick="previousLevel()">上一关</button>
+            <button onclick="nextLevel()">下一关</button>
+        </div>
+
+        <div id="message"></div>
+
+        <div class="level-select" id="level-select">
+            <!-- 关卡选择按钮将在这里动态生成 -->
+        </div>
+
+        <div class="instructions">
+            <h3>🎮 游戏说明</h3>
+            <ul>
+                <li><strong>目标：</strong>将所有箱子推到绿色目标点上</li>
+                <li><strong>操作：</strong>使用方向键或WASD移动角色</li>
+                <li><strong>规则：</strong>只能推箱子，不能拉箱子</li>
+                <li><strong>提示：</strong>箱子推到目标点后会变绿</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        class SokobanGame {
+            constructor() {
+                this.levels = this.initializeLevels();
+                this.currentLevel = 0;
+                this.moves = 0;
+                this.completedLevels = new Set();
+                this.player = { x: 0, y: 0 };
+                this.boxes = [];
+                this.targets = [];
+                this.walls = [];
+                this.gridElement = document.getElementById('grid');
+                this.moveCountElement = document.getElementById('move-count');
+                this.currentLevelElement = document.getElementById('current-level');
+                this.messageElement = document.getElementById('message');
+                this.levelSelectElement = document.getElementById('level-select');
+
+                this.initializeEventListeners();
+                this.createLevelButtons();
+                this.loadLevel(0);
+            }
+
+            initializeLevels() {
+                return [
+                    // 第1关 - 简单入门
+                    {
+                        width: 5,
+                        height: 5,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],
+                            [1,0],[1,4],[2,0],[2,4],[3,0],[3,4],[4,0],[4,1],[4,2],[4,3],[4,4]
+                        ],
+                        player: [1,2],
+                        boxes: [[2,2]],
+                        targets: [[3,2]]
+                    },
+                    // 第2关
+                    {
+                        width: 6,
+                        height: 5,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,4],[2,0],[2,4],
+                            [3,0],[3,4],[4,0],[4,4],[5,0],[5,1],[5,2],[5,3],[5,4]
+                        ],
+                        player: [3,2],
+                        boxes: [[2,2],[4,2]],
+                        targets: [[2,1],[4,3]]
+                    },
+                    // 第3关
+                    {
+                        width: 6,
+                        height: 6,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[1,0],[1,5],[2,0],[2,5],
+                            [3,0],[3,5],[4,0],[4,5],[5,0],[5,1],[5,2],[5,3],[5,4],[5,5]
+                        ],
+                        player: [3,3],
+                        boxes: [[2,2],[4,2],[3,4]],
+                        targets: [[2,1],[4,1],[3,3]]
+                    },
+                    // 第4关
+                    {
+                        width: 7,
+                        height: 6,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[1,0],[1,2],[1,5],[2,0],[2,5],
+                            [3,0],[3,5],[4,0],[4,5],[5,0],[5,2],[5,5],[6,0],[6,1],[6,2],[6,3],[6,4],[6,5]
+                        ],
+                        player: [3,3],
+                        boxes: [[2,2],[4,2],[2,4],[4,4]],
+                        targets: [[2,1],[4,1],[3,2],[1,4]]
+                    },
+                    // 第5关
+                    {
+                        width: 7,
+                        height: 7,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[1,0],[1,2],[1,6],[2,0],[2,6],
+                            [3,0],[3,3],[3,6],[4,0],[4,6],[5,0],[5,2],[5,6],[6,0],[6,1],[6,2],[6,3],[6,4],[6,5],[6,6]
+                        ],
+                        player: [3,4],
+                        boxes: [[2,1],[4,1],[2,3],[4,3],[3,5]],
+                        targets: [[1,1],[5,1],[1,3],[5,3],[3,2]]
+                    },
+                    // 第6关
+                    {
+                        width: 8,
+                        height: 7,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[1,0],[1,3],[1,6],[2,0],[2,6],
+                            [3,0],[3,2],[3,4],[3,6],[4,0],[4,6],[5,0],[5,2],[5,4],[5,6],[6,0],[6,3],[6,6],[7,0],[7,1],[7,2],[7,3],[7,4],[7,5],[7,6]
+                        ],
+                        player: [4,3],
+                        boxes: [[2,1],[5,1],[3,3],[4,4],[2,5],[5,5]],
+                        targets: [[1,1],[6,1],[1,5],[6,5],[4,2],[4,5]]
+                    },
+                    // 第7关
+                    {
+                        width: 8,
+                        height: 8,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[1,0],[1,4],[1,7],[2,0],[2,7],
+                            [3,0],[3,2],[3,5],[3,7],[4,0],[4,7],[5,0],[5,2],[5,5],[5,7],[6,0],[6,4],[6,7],[7,0],[7,1],[7,2],[7,3],[7,4],[7,5],[7,6],[7,7]
+                        ],
+                        player: [4,3],
+                        boxes: [[2,1],[5,1],[3,3],[4,4],[2,4],[5,4],[3,6]],
+                        targets: [[1,1],[6,1],[1,3],[6,3],[1,6],[6,6],[4,2]]
+                    },
+                    // 第8关
+                    {
+                        width: 9,
+                        height: 8,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[1,0],[1,3],[1,7],[2,0],[2,7],
+                            [3,0],[3,2],[3,4],[3,6],[3,7],[4,0],[4,7],[5,0],[5,2],[5,4],[5,6],[5,7],[6,0],[6,7],[7,0],[7,3],[7,7],[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,6],[8,7]
+                        ],
+                        player: [4,3],
+                        boxes: [[2,1],[6,1],[3,3],[5,3],[2,5],[6,5],[4,4],[4,6]],
+                        targets: [[1,1],[7,1],[1,5],[7,5],[3,2],[5,2],[3,6],[5,6]]
+                    },
+                    // 第9关
+                    {
+                        width: 9,
+                        height: 9,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[1,0],[1,4],[1,8],[2,0],[2,8],
+                            [3,0],[3,2],[3,6],[3,8],[4,0],[4,8],[5,0],[5,2],[5,6],[5,8],[6,0],[6,8],[7,0],[7,4],[7,8],[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,6],[8,7],[8,8]
+                        ],
+                        player: [4,4],
+                        boxes: [[2,1],[6,1],[3,3],[5,3],[4,5],[2,6],[6,6],[3,7],[5,7]],
+                        targets: [[1,1],[7,1],[1,3],[7,3],[1,7],[7,7],[4,2],[4,6],[4,7]]
+                    },
+                    // 第10关 - 终极挑战
+                    {
+                        width: 10,
+                        height: 9,
+                        walls: [
+                            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[1,0],[1,3],[1,6],[1,8],[2,0],[2,8],
+                            [3,0],[3,2],[3,4],[3,6],[3,8],[4,0],[4,8],[5,0],[5,8],[6,0],[6,2],[6,4],[6,6],[6,8],[7,0],[7,8],[8,0],[8,3],[8,6],[8,8],[9,0],[9,1],[9,2],[9,3],[9,4],[9,5],[9,6],[9,7],[9,8]
+                        ],
+                        player: [5,4],
+                        boxes: [[2,1],[7,1],[3,3],[6,3],[4,4],[5,5],[2,5],[7,5],[3,7],[6,7]],
+                        targets: [[1,1],[8,1],[1,3],[8,3],[1,5],[8,5],[1,7],[8,7],[4,5],[5,3]]
+                    }
+                ];
+            }
+
+            createLevelButtons() {
+                this.levelSelectElement.innerHTML = '';
+                for (let i = 0; i < this.levels.length; i++) {
+                    const button = document.createElement('button');
+                    button.className = 'level-btn';
+                    button.textContent = i + 1;
+                    button.onclick = () => this.selectLevel(i);
+
+                    if (this.completedLevels.has(i)) {
+                        button.classList.add('completed');
+                    }
+                    if (i === this.currentLevel) {
+                        button.classList.add('current');
+                    }
+                    if (i > 0 && !this.completedLevels.has(i - 1)) {
+                        button.classList.add('locked');
+                        button.onclick = null;
+                    }
+
+                    this.levelSelectElement.appendChild(button);
+                }
+            }
+
+            selectLevel(levelIndex) {
+                if (levelIndex >= 0 && levelIndex < this.levels.length) {
+                    this.loadLevel(levelIndex);
+                }
+            }
+
+            loadLevel(levelIndex) {
+                this.currentLevel = levelIndex;
+                this.moves = 0;
+                this.updateUI();
+                this.setupLevel();
+                this.render();
+                this.createLevelButtons();
+            }
+
+            setupLevel() {
+                const level = this.levels[this.currentLevel];
+                this.player = { x: level.player[0], y: level.player[1] };
+                this.boxes = level.boxes.map(box => ({ x: box[0], y: box[1] }));
+                this.targets = level.targets.map(target => ({ x: target[0], y: target[1] }));
+                this.walls = new Set(level.walls.map(wall => `${wall[0]},${wall[1]}`));
+
+                // 设置网格
+                this.gridElement.style.gridTemplateColumns = `repeat(${level.width}, 40px)`;
+                this.gridElement.style.gridTemplateRows = `repeat(${level.height}, 40px)`;
+            }
+
+            render() {
+                this.gridElement.innerHTML = '';
+                const level = this.levels[this.currentLevel];
+
+                for (let y = 0; y < level.height; y++) {
+                    for (let x = 0; x < level.width; x++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'cell';
+
+                        const key = `${x},${y}`;
+
+                        if (this.walls.has(key)) {
+                            cell.classList.add('wall');
+                        } else {
+                            cell.classList.add('floor');
+
+                            // 检查是否是目标点
+                            const isTarget = this.targets.some(target => target.x === x && target.y === y);
+                            if (isTarget) {
+                                cell.classList.add('target');
+                            }
+
+                            // 检查是否有箱子
+                            const box = this.boxes.find(box => box.x === x && box.y === y);
+                            if (box) {
+                                cell.classList.add(isTarget ? 'box-on-target' : 'box');
+                            }
+
+                            // 检查是否有玩家
+                            if (this.player.x === x && this.player.y === y) {
+                                cell.classList.add('player');
+                            }
+                        }
+
+                        this.gridElement.appendChild(cell);
+                    }
+                }
+            }
+
+            movePlayer(dx, dy) {
+                if (this.isLevelComplete()) return;
+
+                const newX = this.player.x + dx;
+                const newY = this.player.y + dy;
+                const level = this.levels[this.currentLevel];
+
+                // 检查边界
+                if (newX < 0 || newX >= level.width || newY < 0 || newY >= level.height) return;
+
+                // 检查墙壁
+                if (this.walls.has(`${newX},${newY}`)) return;
+
+                // 检查箱子
+                const boxIndex = this.boxes.findIndex(box => box.x === newX && box.y === newY);
+                if (boxIndex !== -1) {
+                    const newBoxX = newX + dx;
+                    const newBoxY = newY + dy;
+
+                    // 检查箱子新位置是否有效
+                    if (newBoxX < 0 || newBoxX >= level.width || newBoxY < 0 || newBoxY >= level.height) return;
+                    if (this.walls.has(`${newBoxX},${newBoxY}`)) return;
+                    if (this.boxes.some(box => box.x === newBoxX && box.y === newBoxY)) return;
+
+                    // 移动箱子
+                    this.boxes[boxIndex] = { x: newBoxX, y: newBoxY };
+                }
+
+                // 移动玩家
+                this.player.x = newX;
+                this.player.y = newY;
+                this.moves++;
+
+                this.updateUI();
+                this.render();
+
+                // 检查是否完成
+                if (this.isLevelComplete()) {
+                    this.handleLevelComplete();
+                }
+            }
+
+            isLevelComplete() {
+                return this.targets.every(target =>
+                    this.boxes.some(box => box.x === target.x && box.y === target.y)
+                );
+            }
+
+            handleLevelComplete() {
+                this.completedLevels.add(this.currentLevel);
+                this.createLevelButtons();
+
+                const message = document.createElement('div');
+                message.className = 'message success';
+                message.innerHTML = `
+                    <div>🎉 恭喜完成第 ${this.currentLevel + 1} 关！</div>
+                    <div>用了 ${this.moves} 步</div>
+                    <div class="next-level-prompt">
+                        <p>是否进入下一关？</p>
+                        <div class="next-level-buttons">
+                            <button onclick="game.loadLevel(${this.currentLevel + 1})" ${this.currentLevel >= this.levels.length - 1 ? 'disabled' : ''}>
+                                ${this.currentLevel >= this.levels.length - 1 ? '已是最后一关' : '下一关'}
+                            </button>
+                            <button onclick="game.loadLevel(${this.currentLevel})">再玩一次</button>
+                            <button onclick="document.querySelector('.next-level-prompt').style.display='none'">关闭</button>
+                        </div>
+                    </div>
+                `;
+
+                this.messageElement.innerHTML = '';
+                this.messageElement.appendChild(message);
+
+                if (this.completedLevels.size === this.levels.length) {
+                    setTimeout(() => {
+                        alert('🎉 恭喜你完成了所有关卡！你是推箱子大师！');
+                    }, 500);
+                }
+            }
+
+            resetLevel() {
+                this.loadLevel(this.currentLevel);
+                this.messageElement.innerHTML = '';
+            }
+
+            previousLevel() {
+                if (this.currentLevel > 0) {
+                    this.loadLevel(this.currentLevel - 1);
+                    this.messageElement.innerHTML = '';
+                }
+            }
+
+            nextLevel() {
+                if (this.currentLevel < this.levels.length - 1) {
+                    this.loadLevel(this.currentLevel + 1);
+                    this.messageElement.innerHTML = '';
+                }
+            }
+
+            updateUI() {
+                this.currentLevelElement.textContent = this.currentLevel + 1;
+                this.moveCountElement.textContent = this.moves;
+            }
+
+            initializeEventListeners() {
+                document.addEventListener('keydown', (e) => {
+                    switch(e.key) {
+                        case 'ArrowUp':
+                        case 'w':
+                        case 'W':
+                            e.preventDefault();
+                            this.movePlayer(0, -1);
+                            break;
+                        case 'ArrowDown':
+                        case 's':
+                        case 'S':
+                            e.preventDefault();
+                            this.movePlayer(0, 1);
+                            break;
+                        case 'ArrowLeft':
+                        case 'a':
+                        case 'A':
+                            e.preventDefault();
+                            this.movePlayer(-1, 0);
+                            break;
+                        case 'ArrowRight':
+                        case 'd':
+                        case 'D':
+                            e.preventDefault();
+                            this.movePlayer(1, 0);
+                            break;
+                        case 'r':
+                        case 'R':
+                            e.preventDefault();
+                            this.resetLevel();
+                            break;
+                    }
+                });
+            }
+        }
+
+        // 初始化游戏
+        let game;
+        window.addEventListener('DOMContentLoaded', () => {
+            game = new SokobanGame();
+        });
+
+        // 全局函数供按钮调用
+        function resetLevel() { if (game) game.resetLevel(); }
+        function previousLevel() { if (game) game.previousLevel(); }
+        function nextLevel() { if (game) game.nextLevel(); }
+    </script>
+</body>
+</html>
