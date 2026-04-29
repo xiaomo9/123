@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mini FPS (Raycast)</title>
+  <style>
+    html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,Segoe UI,Arial}
+    #c{display:block;width:100vw;height:100vh;image-rendering:pixelated}
+    #ui{
+      position:fixed;left:12px;top:12px;color:#fff;user-select:none;
+      background:rgba(0,0,0,.35);padding:10px 12px;border-radius:10px;
+      line-height:1.35;max-width:560px
+    }
+    #ui b{color:#9ef}
+    #hint{opacity:.85;font-size:12px}
+    #msg{margin-top:6px;font-size:12px;opacity:.9}
+
+    .bar{width:220px;height:10px;background:rgba(255,255,255,.15);border-radius:8px;overflow:hidden;display:inline-block;vertical-align:middle}
+    .bar > i{display:block;height:100%;background:linear-gradient(90deg,#46f,#2ef);width:100%}
+    .bar.enemy > i{background:linear-gradient(90deg,#f55,#f93)}
+    #stats{margin-top:8px;font-size:12px;opacity:.95}
+
+    #cross{
+      position:fixed;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;
+      pointer-events:none
+    }
+    #cross:before,#cross:after{content:"";position:absolute;background:#fff;opacity:.9}
+    #cross:before{left:7px;top:0;width:2px;height:16px}
+    #cross:after{left:0;top:7px;width:16px;height:2px}
+
+    #overlay{
+      position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+      background:rgba(0,0,0,.55);color:#fff;text-align:center
+    }
+    #overlay .box{background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);padding:18px 22px;border-radius:14px;max-width:520px}
+    #overlay h1{margin:0 0 8px 0;font-size:22px}
+    #overlay p{margin:6px 0 0 0;opacity:.9;font-size:13px;line-height:1.35}
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="cross"></div>
+<div id="ui">
+  <div><b>Click</b> to lock mouse. <b>WASD</b> move, <b>Shift</b> sprint, <b>Left click</b> shoot, <b>R</b> restart, <b>Esc</b> unlock.</div>
+  <div id="hint">2.5D raycaster (Wolfenstein-style). Enemies spawn randomly. Kill all to win.</div>
+
+  <div id="stats">
+    <div>HP: <span class="bar"><i id="hpFill"></i></span> <span id="hpText"></span></div>
+    <div style="margin-top:6px">Enemies: <span id="enemyCount"></span></div>
+  </div>
+  <div id="msg"></div>
+</div>
+
+<div id="overlay"><div class="box"><h1 id="ovTitle"></h1><p id="ovBody"></p></div></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d", { alpha:false });
+  const msgEl = document.getElementById("msg");
+  const hpFill = document.getElementById("hpFill");
+  const hpText = document.getElementById("hpText");
+  const enemyCountEl = document.getElementById("enemyCount");
+  const overlay = document.getElementById("overlay");
+  const ovTitle = document.getElementById("ovTitle");
+  const ovBody = document.getElementById("ovBody");
+
+  const SCALE = 1;
+  const INTERNAL_W = 480;
+  const INTERNAL_H = 270;
+
+  function resize() {
+    canvas.width = INTERNAL_W * SCALE;
+    canvas.height = INTERNAL_H * SCALE;
+  }
+  resize();
+
+  const mapW = 16, mapH = 16;
+  const MAP = [
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,
+    1,0,1,0,1,0,1,0,1,0,0,1,0,1,0,1,
+    1,0,1,0,1,0,1,0,1,0,0,0,0,1,0,1,
+    1,0,1,0,0,0,0,0,1,1,1,0,0,1,0,1,
+    1,0,0,0,1,0,1,0,0,0,1,0,0,0,0,1,
+    1,0,1,0,1,0,1,0,1,0,1,0,1,0,0,1,
+    1,0,1,0,0,0,0,0,1,0,0,0,1,0,0,1,
+    1,0,1,1,1,0,1,0,1,0,1,1,1,0,0,1,
+    1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,1,
+    1,0,1,1,1,0,1,1,1,0,1,0,1,1,0,1,
+    1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,1,
+    1,0,1,0,1,1,1,0,1,1,1,0,1,0,0,1,
+    1,0,1,0,0,0,0,0,0,0,0,0,1,0,0,1,
+    1,0,0,0,0,1,0,0,0,1,0,0,0,0,0,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+  ];
+
+  function cell(x, y) {
+    if (x < 0 || y < 0 || x >= mapW || y >= mapH) return 1;
+    return MAP[(y|0) * mapW + (x|0)];
+  }
+
+  const P = {
+    x: 1.5, y: 1.5,
+    ang: 0,
+    pitch: 0,
+    z: 0, vz: 0,
+    bobT: 0,
+    hp: 100,
+    hpMax: 100
+  };
+
+  let gameState = "playing"; // playing | win | dead
+  let lastShotAt = -1e9;
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function dist2(ax, ay, bx, by) { const dx = ax-bx, dy = ay-by; return dx*dx + dy*dy; }
+  function normAng(a) {
+    a = (a + Math.PI) % (Math.PI * 2);
+    if (a < 0) a += Math.PI * 2;
+    return a - Math.PI;
+  }
+  function randInt(a, b) { return (a + Math.floor(Math.random() * (b - a + 1))) | 0; }
+
+  const enemies = [];
+  const ENEMY_COUNT = 8;
+
+  function isSpawnable(mx, my) {
+    if (cell(mx, my) !== 0) return false;
+    const cx = mx + 0.5, cy = my + 0.5;
+    return dist2(cx, cy, P.x, P.y) > 9;
+  }
+
+  function spawnEnemies() {
+    enemies.length = 0;
+    let guard = 0;
+    while (enemies.length < ENEMY_COUNT && guard++ < 5000) {
+      const mx = randInt(1, mapW - 2);
+      const my = randInt(1, mapH - 2);
+      if (!isSpawnable(mx, my)) continue;
+      enemies.push({
+        x: mx + 0.5,
+        y: my + 0.5,
+        hp: 45,
+        hpMax: 45,
+        speed: 1.15,
+        atkRange: 0.75,
+        atkCd: 0.85,
+        lastAtkAt: -1e9
+      });
+    }
+  }
+
+  function resetGame() {
+    P.x = 1.5; P.y = 1.5; P.ang = 0; P.pitch = 0; P.z = 0; P.vz = 0; P.bobT = 0;
+    P.hp = P.hpMax;
+    lastShotAt = -1e9;
+    gameState = "playing";
+    overlay.style.display = "none";
+    spawnEnemies();
+  }
+
+  spawnEnemies();
+
+  const keys = new Set();
+  window.addEventListener("keydown", e => {
+    if (e.code === "Tab") e.preventDefault();
+    keys.add(e.code);
+    if (e.code === "KeyR") resetGame();
+  });
+  window.addEventListener("keyup", e => keys.delete(e.code));
+
+  let locked = false;
+  canvas.addEventListener("click", () => canvas.requestPointerLock?.());
+  document.addEventListener("pointerlockchange", () => {
+    locked = (document.pointerLockElement === canvas);
+    msgEl.textContent = locked ? "Mouse locked." : "Mouse unlocked (click canvas).";
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!locked) return;
+    const sens = 0.0025;
+    P.ang += e.movementX * sens;
+    P.pitch = clamp(P.pitch - e.movementY * sens, -0.65, 0.65);
+  });
+
+  function tryMove(obj, nx, ny) {
+    const r = 0.18;
+    const can = (x, y) =>
+      cell(x - r, y - r) === 0 &&
+      cell(x + r, y - r) === 0 &&
+      cell(x - r, y + r) === 0 &&
+      cell(x + r, y + r) === 0;
+
+    let x = obj.x, y = obj.y;
+    if (can(nx, y)) x = nx;
+    if (can(x, ny)) y = ny;
+    obj.x = x; obj.y = y;
+  }
+
+  const FOV = Math.PI / 3;
+  const NUM_RAYS = INTERNAL_W;
+  const FLOOR_COL = [20, 20, 24];
+  const CEIL_COL  = [10, 12, 18];
+
+  function wallColor(texU, side) {
+    const band = (texU * 16) | 0;
+    let r = 60 + (band % 2) * 25;
+    let g = 120 + (band % 3) * 15;
+    let b = 190 - (band % 4) * 18;
+    if (side) { r *= 0.82; g *= 0.82; b *= 0.82; }
+    return [r|0, g|0, b|0];
+  }
+
+  function castRayDist(rayAng) {
+    const rayDirX = Math.cos(rayAng);
+    const rayDirY = Math.sin(rayAng);
+
+    let mapX = P.x | 0;
+    let mapY = P.y | 0;
+
+    const deltaDistX = Math.abs(1 / (rayDirX || 1e-9));
+    const deltaDistY = Math.abs(1 / (rayDirY || 1e-9));
+
+    let stepX, stepY;
+    let sideDistX, sideDistY;
+
+    if (rayDirX < 0) { stepX = -1; sideDistX = (P.x - mapX) * deltaDistX; }
+    else { stepX = 1; sideDistX = (mapX + 1.0 - P.x) * deltaDistX; }
+
+    if (rayDirY < 0) { stepY = -1; sideDistY = (P.y - mapY) * deltaDistY; }
+    else { stepY = 1; sideDistY = (mapY + 1.0 - P.y) * deltaDistY; }
+
+    let side = 0;
+    for (let iter = 0; iter < 256; iter++) {
+      if (sideDistX < sideDistY) {
+        sideDistX += deltaDistX;
+        mapX += stepX;
+        side = 0;
+      } else {
+        sideDistY += deltaDistY;
+        mapY += stepY;
+        side = 1;
+      }
+      if (cell(mapX, mapY)) {
+        let dist;
+        if (side === 0) dist = (mapX - P.x + (1 - stepX) / 2) / (rayDirX || 1e-9);
+        else dist = (mapY - P.y + (1 - stepY) / 2) / (rayDirY || 1e-9);
+        return Math.max(0.0001, dist);
+      }
+    }
+    return 1e9;
+  }
+
+  function shoot(now) {
+    if (gameState !== "playing") return;
+    const cd = 0.22;
+    if ((now - lastShotAt) < cd) return;
+    lastShotAt = now;
+
+    // Find closest enemy near crosshair, not behind wall.
+    const aimFov = 0.06; // radians
+    const wallDist = castRayDist(P.ang);
+
+    let best = -1;
+    let bestDist = 1e9;
+
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (e.hp <= 0) continue;
+      const dx = e.x - P.x;
+      const dy = e.y - P.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 0.001) continue;
+
+      const angTo = Math.atan2(dy, dx);
+      const da = normAng(angTo - P.ang);
+      if (Math.abs(da) > aimFov) continue;
+      if (d > wallDist + 0.05) continue;
+
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+
+    if (best >= 0) {
+      const e = enemies[best];
+      e.hp = Math.max(0, e.hp - 18);
+      if (e.hp === 0) {
+        // small reward
+        P.hp = clamp(P.hp + 6, 0, P.hpMax);
+      }
+    }
+  }
+
+  document.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    shoot(performance.now() / 1000);
+  });
+
+  const zBuffer = new Float32Array(INTERNAL_W);
+
+  function updateHUD() {
+    const hpPct = clamp(P.hp / P.hpMax, 0, 1);
+    hpFill.style.width = (hpPct * 100).toFixed(1) + "%";
+    hpText.textContent = `${P.hp|0}/${P.hpMax}`;
+    const alive = enemies.reduce((n, e) => n + (e.hp > 0 ? 1 : 0), 0);
+    enemyCountEl.textContent = `${alive}/${ENEMY_COUNT}`;
+  }
+
+  function setOverlay(title, body) {
+    ovTitle.textContent = title;
+    ovBody.textContent = body;
+    overlay.style.display = "flex";
+  }
+
+  let lastT = performance.now();
+  function frame(nowMs) {
+    const now = nowMs / 1000;
+    const dt = Math.min(0.05, (nowMs - lastT) / 1000);
+    lastT = nowMs;
+
+    if (gameState === "playing") {
+      const forward = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
+      const strafe  = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
+      const sprint = keys.has("ShiftLeft") || keys.has("ShiftRight");
+
+      const baseSpeed = sprint ? 4.2 : 2.8;
+      const moveSpeed = baseSpeed * dt;
+
+      const cosA = Math.cos(P.ang), sinA = Math.sin(P.ang);
+      const vx = (forward * cosA - strafe * sinA) * moveSpeed;
+      const vy = (forward * sinA + strafe * cosA) * moveSpeed;
+
+      if (forward || strafe) P.bobT += dt * (sprint ? 11 : 8);
+      else P.bobT += dt * 2;
+
+      tryMove(P, P.x + vx, P.y + vy);
+
+      const onGround = (P.z <= 0.0001);
+      if (keys.has("Space") && onGround) P.vz = 3.5;
+      P.vz -= 9.2 * dt;
+      P.z = Math.max(0, P.z + P.vz * dt);
+      if (P.z === 0) P.vz = 0;
+
+      // Enemy AI
+      for (const e of enemies) {
+        if (e.hp <= 0) continue;
+        const dx = P.x - e.x;
+        const dy = P.y - e.y;
+        const d = Math.hypot(dx, dy);
+
+        // Move toward player if far
+        if (d > e.atkRange * 0.9) {
+          const sp = e.speed * dt;
+          const mx = e.x + (dx / (d || 1e-9)) * sp;
+          const my = e.y + (dy / (d || 1e-9)) * sp;
+          tryMove(e, mx, my);
+        }
+
+        // Attack
+        if (d <= e.atkRange && (now - e.lastAtkAt) >= e.atkCd) {
+          e.lastAtkAt = now;
+          P.hp = Math.max(0, P.hp - 10);
+        }
+      }
+
+      if (P.hp <= 0) {
+        gameState = "dead";
+        setOverlay("Game Over", "Your HP reached zero. Press R to restart.");
+      }
+
+      const alive = enemies.some(e => e.hp > 0);
+      if (!alive) {
+        gameState = "win";
+        setOverlay("You Win", "All enemies eliminated. Press R to play again.");
+      }
+    }
+
+    // Render background
+    const img = ctx.createImageData(INTERNAL_W, INTERNAL_H);
+    const data = img.data;
+
+    const horizon = (INTERNAL_H / 2) + P.pitch * 90 - (P.z * 10);
+    const bob = Math.sin(P.bobT) * 3.0;
+    const yCenterBase = (INTERNAL_H / 2) + P.pitch * 90 - (P.z * 10) + bob;
+
+    for (let y = 0; y < INTERNAL_H; y++) {
+      const t = y < horizon ? (y / Math.max(1, horizon)) : ((y - horizon) / Math.max(1, INTERNAL_H - horizon));
+      let r,g,b;
+      if (y < horizon) {
+        r = (CEIL_COL[0] + t * 12) | 0;
+        g = (CEIL_COL[1] + t * 14) | 0;
+        b = (CEIL_COL[2] + t * 22) | 0;
+      } else {
+        r = (FLOOR_COL[0] + (1 - t) * 10) | 0;
+        g = (FLOOR_COL[1] + (1 - t) * 12) | 0;
+        b = (FLOOR_COL[2] + (1 - t) * 18) | 0;
+      }
+      for (let x = 0; x < INTERNAL_W; x++) {
+        const i = (y * INTERNAL_W + x) * 4;
+        data[i] = r; data[i+1] = g; data[i+2] = b; data[i+3] = 255;
+      }
+    }
+
+    // Walls + zBuffer
+    for (let x = 0; x < NUM_RAYS; x++) {
+      const camX = (2 * x / NUM_RAYS) - 1;
+      const rayAng = P.ang + Math.atan(camX * Math.tan(FOV/2) * 2);
+
+      const rayDirX = Math.cos(rayAng);
+      const rayDirY = Math.sin(rayAng);
+
+      let mapX = P.x | 0;
+      let mapY = P.y | 0;
+
+      const deltaDistX = Math.abs(1 / (rayDirX || 1e-9));
+      const deltaDistY = Math.abs(1 / (rayDirY || 1e-9));
+
+      let stepX, stepY;
+      let sideDistX, sideDistY;
+
+      if (rayDirX < 0) { stepX = -1; sideDistX = (P.x - mapX) * deltaDistX; }
+      else { stepX = 1; sideDistX = (mapX + 1.0 - P.x) * deltaDistX; }
+      if (rayDirY < 0) { stepY = -1; sideDistY = (P.y - mapY) * deltaDistY; }
+      else { stepY = 1; sideDistY = (mapY + 1.0 - P.y) * deltaDistY; }
+
+      let side = 0;
+      let dist = 0;
+      let hit = 0;
+
+      for (let iter = 0; iter < 256; iter++) {
+        if (sideDistX < sideDistY) {
+          sideDistX += deltaDistX;
+          mapX += stepX;
+          side = 0;
+        } else {
+          sideDistY += deltaDistY;
+          mapY += stepY;
+          side = 1;
+        }
+        if (cell(mapX, mapY)) { hit = 1; break; }
+      }
+
+      if (hit) {
+        if (side === 0) dist = (mapX - P.x + (1 - stepX) / 2) / (rayDirX || 1e-9);
+        else dist = (mapY - P.y + (1 - stepY) / 2) / (rayDirY || 1e-9);
+        dist = Math.max(0.0001, dist);
+
+        const corr = Math.cos(rayAng - P.ang);
+        const perpDist = dist * corr;
+        zBuffer[x] = perpDist;
+
+        const lineH = (INTERNAL_H / perpDist) | 0;
+        const yCenter = yCenterBase;
+
+        let drawStart = (yCenter - lineH / 2) | 0;
+        let drawEnd   = (yCenter + lineH / 2) | 0;
+
+        drawStart = Math.max(0, drawStart);
+        drawEnd = Math.min(INTERNAL_H - 1, drawEnd);
+
+        let wallX;
+        if (side === 0) wallX = P.y + dist * rayDirY;
+        else wallX = P.x + dist * rayDirX;
+        wallX -= Math.floor(wallX);
+        const col = wallColor(wallX, side);
+
+        const fog = clamp((perpDist - 1.5) / 12, 0, 1);
+        const fr = col[0] * (1 - fog);
+        const fg = col[1] * (1 - fog);
+        const fb = col[2] * (1 - fog);
+
+        for (let y = drawStart; y <= drawEnd; y++) {
+          const shade = 0.85 + 0.15 * Math.sin((y - drawStart) / Math.max(1, (drawEnd - drawStart)) * Math.PI);
+          const i = (y * INTERNAL_W + x) * 4;
+          data[i]   = (fr * shade) | 0;
+          data[i+1] = (fg * shade) | 0;
+          data[i+2] = (fb * shade) | 0;
+          data[i+3] = 255;
+        }
+      } else {
+        zBuffer[x] = 1e9;
+      }
+    }
+
+    // Enemies as sprites
+    const visible = [];
+    for (const e of enemies) {
+      if (e.hp <= 0) continue;
+      const dx = e.x - P.x;
+      const dy = e.y - P.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 0.001) continue;
+
+      const angTo = Math.atan2(dy, dx);
+      const rel = normAng(angTo - P.ang);
+      if (Math.abs(rel) > (FOV/2 + 0.3)) continue;
+      visible.push({ e, dist, rel });
+    }
+    visible.sort((a,b) => b.dist - a.dist);
+
+    for (const v of visible) {
+      const e = v.e;
+      const dist = v.dist;
+      const rel = v.rel;
+
+      const sx = (0.5 + (rel / FOV)) * INTERNAL_W;
+      const size = (INTERNAL_H / dist) * 0.95;
+      const halfW = size * 0.23;
+      const x0 = (sx - halfW) | 0;
+      const x1 = (sx + halfW) | 0;
+
+      const yCenter = yCenterBase;
+      const y0 = (yCenter - size * 0.5) | 0;
+      const y1 = (yCenter + size * 0.5) | 0;
+
+      const fog = clamp((dist - 1.5) / 12, 0, 1);
+      const base = [255, 90, 90];
+      const r = (base[0] * (1 - fog)) | 0;
+      const g = (base[1] * (1 - fog)) | 0;
+      const b = (base[2] * (1 - fog)) | 0;
+
+      for (let x = x0; x <= x1; x++) {
+        if (x < 0 || x >= INTERNAL_W) continue;
+        if (dist >= zBuffer[x] - 0.02) continue;
+
+        for (let y = y0; y <= y1; y++) {
+          if (y < 0 || y >= INTERNAL_H) continue;
+          const i = (y * INTERNAL_W + x) * 4;
+          data[i] = r; data[i+1] = g; data[i+2] = b; data[i+3] = 255;
+        }
+
+        // enemy HP bar (top of sprite)
+        const hpPct = clamp(e.hp / e.hpMax, 0, 1);
+        const barY = y0 - 6;
+        if (barY >= 0 && barY < INTERNAL_H) {
+          const bw = (x1 - x0 + 1);
+          const filled = (bw * hpPct) | 0;
+          const localX = x - x0;
+          const idx = (barY * INTERNAL_W + x) * 4;
+          if (localX <= filled) { data[idx]=255; data[idx+1]=200; data[idx+2]=80; data[idx+3]=255; }
+          else { data[idx]=60; data[idx+1]=60; data[idx+2]=60; data[idx+3]=255; }
+        }
+      }
+    }
+
+    // Minimap
+    const mmScale = 5;
+    const mmW = mapW * mmScale, mmH = mapH * mmScale;
+    const mmX0 = INTERNAL_W - mmW - 8;
+    const mmY0 = 8;
+
+    function putPixel(px, py, r, g, b, a=255) {
+      if (px < 0 || py < 0 || px >= INTERNAL_W || py >= INTERNAL_H) return;
+      const i = (py * INTERNAL_W + px) * 4;
+      data[i]=r; data[i+1]=g; data[i+2]=b; data[i+3]=a;
+    }
+
+    for (let x = -1; x <= mmW; x++) { putPixel(mmX0 + x, mmY0 - 1, 255,255,255,180); putPixel(mmX0 + x, mmY0 + mmH, 255,255,255,180); }
+    for (let y = -1; y <= mmH; y++) { putPixel(mmX0 - 1, mmY0 + y, 255,255,255,180); putPixel(mmX0 + mmW, mmY0 + y, 255,255,255,180); }
+
+    for (let my = 0; my < mapH; my++) {
+      for (let mx = 0; mx < mapW; mx++) {
+        const v = cell(mx, my);
+        const base = v ? 40 : 10;
+        const c = v ? [110, 130, 160] : [base, base, base];
+        for (let sy = 0; sy < mmScale; sy++) for (let sx = 0; sx < mmScale; sx++) {
+          putPixel(mmX0 + mx*mmScale + sx, mmY0 + my*mmScale + sy, c[0], c[1], c[2], 255);
+        }
+      }
+    }
+
+    // Enemies on minimap
+    for (const e of enemies) {
+      if (e.hp <= 0) continue;
+      const ex = (mmX0 + (e.x * mmScale)) | 0;
+      const ey = (mmY0 + (e.y * mmScale)) | 0;
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) putPixel(ex+ox, ey+oy, 255, 180, 70, 255);
+    }
+
+    const ppx = (mmX0 + (P.x * mmScale)) | 0;
+    const ppy = (mmY0 + (P.y * mmScale)) | 0;
+    for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) putPixel(ppx+ox, ppy+oy, 255, 80, 80, 255);
+    const fx = (ppx + Math.cos(P.ang) * 6) | 0;
+    const fy = (ppy + Math.sin(P.ang) * 6) | 0;
+    const steps = 10;
+    for (let i = 0; i <= steps; i++) {
+      const lx = (ppx + (fx-ppx) * (i/steps)) | 0;
+      const ly = (ppy + (fy-ppy) * (i/steps)) | 0;
+      putPixel(lx, ly, 255, 220, 160, 255);
+    }
+
+    ctx.putImageData(img, 0, 0);
+
+    updateHUD();
+
+    const fps = (1/dt) | 0;
+    msgEl.textContent = locked ? `Mouse locked. FPS: ${fps}` : "Mouse unlocked (click canvas).";
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
